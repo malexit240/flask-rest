@@ -1,3 +1,5 @@
+"""this module contains routing functions for blog app"""
+
 from flask import Blueprint
 from flask import flash
 from flask import g
@@ -5,29 +7,44 @@ from flask import redirect
 from flask import render_template
 from flask import request
 from flask import url_for
+from flask import jsonify
+from flask import Response
 from werkzeug.exceptions import abort
 
-from flaskr.auth.auth import login_required
+from flaskr.auth.basic_auth import auth
 from flaskr.db import get_db
 from flaskr.blog.queries import (
-    create_post, delete_post, get_post, update_post, post_list
+    create_post, delete_post, get_post, update_post, get_post_list
 )
-from flaskr.comment.queries import comment_list
+from flaskr.auth.queries import get_user_by_id, get_user_by_username
+from flaskr.comment.queries import get_comment_list
 
-bp = Blueprint("blog", __name__)
+bp = Blueprint("blog", __name__,url_prefix="/blog")
 
-
-@bp.route("/")
+@bp.route("/all/")
 def index():
-    """Show all the posts, most recent first."""
+    """returns all the posts in json, most recent first."""
     db = get_db()
-    posts = post_list(db)
-    posts_ = [dict(p) for p in posts]
+    posts = get_post_list(db)
 
-    for p in posts_:
-        p['comments'] = comment_list(db,p['id'])
+    result = [{
+            'id':p['id'],
+            'title':p['title'],
+            'body':p['body'],
+            'created':p['created'],
+            'author':p['username'],
+            'comments':[{
+                    'id':c['id'],
+                    'body':c['body'],
+                    'author':c['username'],
+                    'created':c['created']
+                }
+                for c in get_comment_list(db,p['id'])
+                ]
+        } 
+    for p in posts]
 
-    return render_template("blog/index.html", posts=posts_)
+    return jsonify(result)
 
 
 def check_post(id, check_author=True):
@@ -42,83 +59,94 @@ def check_post(id, check_author=True):
     :raise 404: if a post with the given id doesn't exist
     :raise 403: if the current user isn't the author
     """
+    db = get_db()
 
-    post = get_post(get_db(), id)
-    if post is None:
+    post = get_post(db, id)
+    if not post:
         abort(404, "Post id {0} doesn't exist.".format(id))
 
-    if check_author and post["author_id"] != g.user["id"]:
-        abort(403)
+    if check_author:
+        if get_user_by_id(db,post['author_id']) != get_user_by_username(db,auth.username()):
+            abort(403)
 
     return post
 
 
-@bp.route("/create", methods=("GET", "POST"))
-@login_required
+@bp.route("/create/", methods=("POST",))
+@auth.login_required
 def create():
-    """Create a new post for the current user."""
+    """Create a new post"""
     if request.method == "POST":
         error = None
 
-        # TODO: достать title и body из формы
-        title = request.form['title']
-        body = request.form['body']
+        json = request.get_json()
+        title = json['title']
+        body = json['body']
 
-        # TODO: title обязательное поле. Если его нет записать ошибку
         if not title:
-            error = 'title must be'
+            error = 'Title must be'
         elif not body:
-            error +='body must be'
+            error +='Body must be'
 
-        if error is not None:
-            flash(error)
-        else:
+        if not error:
             db = get_db()
-            create_post(db, title, body, g.user["id"])
-            return redirect(url_for("blog.index"))
 
-    return render_template("blog/create.html")
+            create_post(db, title, body, get_user_by_username(db,auth.username())['id'])
+            return Response("post was added", status=200)
+        else:
+            flash(error)
+            return Response('%s'%error,status=400)
+            
 
 
-@bp.route("/<int:id>/update", methods=("GET", "POST"))
-@login_required
+    return Response("need POST method",status=405)
+
+
+@bp.route("/update/<int:id>/", methods=("POST",))
+@auth.login_required
 def update(id):
     """Update a post if the current user is the author."""
     post = check_post(id)
 
+    if not post:
+        return Response("post not found",status=404)
+
     if request.method == "POST":
         error = None
 
-        # TODO: достать title и body из формы
-        title = request.form['title']
-        body = request.form['body']
-
-        # TODO: title обязательное поле. Если его нет записать ошибку
+        json = request.get_json()
+        title = json['title']
+        body = json['body']
 
         if not title:
-            error = 'title must be'
+            error = 'Title must be'
         elif not body:
-            error +='body must be'
+            error +='Body must be'
 
-        if error is not None:
-            flash(error)
-        else:
+        if not error:
             db = get_db()
             update_post(db, title, body, id)
-            return redirect(url_for("blog.index"))
+            return Response('Post was updated',status=200)
+        else:
+            flash(error)
+            return Response('%s'%error,status=400)
 
-    return render_template("blog/update.html", post=post)
+    return Response("need POST method",status=405)
 
 
-@bp.route("/<int:id>/delete", methods=("POST",))
-@login_required
+@bp.route("/delete/<int:id>/", methods=("POST",))
+@auth.login_required
 def delete(id):
     """Delete a post.
-
     Ensures that the post exists and that the logged in user is the
     author of the post.
     """
-    check_post(id)
+    post = check_post(id)
+
+    if not post:
+        return Response("post not found",status=404)
+
     db = get_db()
     delete_post(db, id)
-    return redirect(url_for("blog.index"))
+
+    return Response("post was deleted",status=200)
