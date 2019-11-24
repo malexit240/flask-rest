@@ -18,6 +18,7 @@ from flaskr.blog.queries import (
 )
 from flaskr.auth.queries import get_user_by_id, get_user_by_username
 from flaskr.comment.queries import get_comment_list
+from flaskr.check_request_data import check_attrs_in_json
 
 bp = Blueprint("blog", __name__,url_prefix="/blog")
 
@@ -80,20 +81,17 @@ def create():
         error = None
 
         json = request.get_json()
-        title = json['title']
-        body = json['body']
-
-        if not title:
-            error = 'Title must be'
-        elif not body:
-            error +='Body must be'
-
-        if not error:
+        
+        if check_attrs_in_json(json,'title','body'):
             db = get_db()
+
+            title = json['title']
+            body = json['body']
 
             create_post(db, title, body, get_user_by_username(db,auth.username())['id'])
             return Response("post was added", status=200)
         else:
+            error = 'incorrect json'
             flash(error)
             return Response('%s'%error,status=400)
             
@@ -115,19 +113,17 @@ def update(id):
         error = None
 
         json = request.get_json()
-        title = json['title']
-        body = json['body']
 
-        if not title:
-            error = 'Title must be'
-        elif not body:
-            error +='Body must be'
+        if check_attrs_in_json(json,'title','body'):
 
-        if not error:
+            title = json['title']
+            body = json['body']
+
             db = get_db()
             update_post(db, title, body, id)
             return Response('Post was updated',status=200)
         else:
+            error = 'incorrect json'
             flash(error)
             return Response('%s'%error,status=400)
 

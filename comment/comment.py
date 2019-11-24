@@ -17,18 +17,9 @@ from flaskr.comment.queries import (
     create_comment, delete_comment, get_comment, update_comment
 )
 
+from flaskr.check_request_data import check_attrs_in_json
+
 bp = Blueprint("comment", __name__,url_prefix='/comment')
-
-def check_attrs_in_json(jsonlike:dict,*args):
-    """returns True if dict contains keys from args"""
-    if not len(args):
-        return False
-    
-    for attr in args:
-        if attr not in jsonlike:
-            return False
-
-    return True
 
 def check_comment(id, check_author=True):
     """Get a comment and its author by id.
@@ -55,12 +46,12 @@ def create(post_id:int):
     """Create a new comment for the current user."""
     if request.method == "POST":
 
-
-        json = request.get_json()
-        body = json['body']
+        json_data = request.get_json()
+        
         author_id =get_user_by_username(get_db(),auth.username())['id']
 
-        if check_attrs_in_json(json,'body'):
+        if check_attrs_in_json(json_data,'body'):
+            body = json_data['body']
             create_comment(get_db(),body,author_id,post_id)
             return Response("comment was added", status=200)
         else:
@@ -83,10 +74,11 @@ def update(id):
     if request.method == "POST":
         error = None
 
-        json = request.get_json()
-        body = json['body']
+        json_data = request.get_json()
+        
 
-        if check_attrs_in_json(json,'body'):
+        if check_attrs_in_json(json_data,'body'):
+            body = json_data['body']
             db = get_db()
             update_comment(db, body, id)
             return Response('comment was updated',status=200)
